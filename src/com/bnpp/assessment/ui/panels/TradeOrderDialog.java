@@ -87,7 +87,7 @@ public class TradeOrderDialog extends JDialog {
         cancelButton.addActionListener(e -> dispose());
     }
 
-    private double getCurrentPremium() {
+    public double getCurrentPremium() {
         return optionType.equals("CE") ? strike.getCallPremium() : strike.getPutPremium();
     }
 

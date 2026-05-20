@@ -87,6 +87,15 @@ public class TradeController {
         int lotSize = dialog.getLotSize();
         int quantity = lots * lotSize;
 
+        // Use the premium currently shown in the dialog to guarantee the executed
+        // price matches what the user saw at the time they clicked BUY/SELL.
+        double displayedPremium = dialog.getCurrentPremium();
+        if (optionType.equalsIgnoreCase("CE")) {
+            strike.setCallPremium(displayedPremium);
+        } else {
+            strike.setPutPremium(displayedPremium);
+        }
+
         boolean success = tradeService.executeTrade(user, strike, optionType, tradeType, quantity);
 
         if (success) {
