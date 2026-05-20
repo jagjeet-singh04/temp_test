@@ -1,8 +1,11 @@
 package com.bnpp.assessment.ui.panels;
 
 import com.bnpp.assessment.controllers.TradeController;
+import com.bnpp.assessment.dao.OptionStrikeDao;
+import com.bnpp.assessment.dao.OptionStrikeDaoImpl;
 import com.bnpp.assessment.models.OptionStrike;
 import com.bnpp.assessment.models.User;
+import com.bnpp.assessment.util.RefreshScheduler;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,6 +19,9 @@ public class TradeOrderDialog extends JDialog {
     private User user;
     private String optionType;
     private TradeController controller;
+    private final OptionStrikeDao strikeDao = new OptionStrikeDaoImpl();
+    private final Runnable refreshTask = this::refreshFromLatestStrike;
+    private boolean cleanedUp;
 
     // lot size mapping based on the underlying index symbol
     private static final int DEFAULT_LOT = 1;
@@ -27,6 +33,8 @@ public class TradeOrderDialog extends JDialog {
         this.optionType = optionType;
         this.controller = new TradeController(this, user, strike, optionType);
         initUI();
+        RefreshScheduler.getInstance().register(refreshTask);
+        refreshFromLatestStrike();
         pack();
         setLocationRelativeTo(parent);
     }
@@ -83,18 +91,39 @@ public class TradeOrderDialog extends JDialog {
         return optionType.equals("CE") ? strike.getCallPremium() : strike.getPutPremium();
     }
 
+    private void refreshFromLatestStrike() {
+        OptionStrike latest = strikeDao.findById(strike.getId());
+        if (latest != null) {
+            strike = latest;
+        }
+
+        if (premiumLabel != null) {
+            premiumLabel.setText("Premium/Share: ₹ " + String.format("%.2f", getCurrentPremium()));
+        }
+
+        if (lotSizeLabel != null) {
+            lotSizeLabel.setText("Lot Size: " + getLotSize());
+        }
+
+        if (strikeLabel != null) {
+            strikeLabel.setText("Strike: " + String.format("%.2f", strike.getStrikePrice()));
+        }
+
+        updateTotal();
+    }
+
     private void updateTotal() {
         try {
             int lots = Integer.parseInt(lotsField.getText().trim());
             if (lots <= 0) {
-                totalLabel.setText("Total: ₹ 0");
+                totalLabel.setText("Total: ₹ 0.00");
                 return;
             }
             int lotSize = getLotSize();
             double total = lots * lotSize * getCurrentPremium();
             totalLabel.setText("Total: ₹ " + String.format("%.2f", total));
         } catch (NumberFormatException ex) {
-            totalLabel.setText("Total: ₹ 0");
+            totalLabel.setText("Total: ₹ 0.00");
         }
     }
 
@@ -107,6 +136,22 @@ public class TradeOrderDialog extends JDialog {
    
 
     public void closeDialog() {
+        cleanup();
         dispose();
+    }
+
+    @Override
+    public void dispose() {
+        cleanup();
+        super.dispose();
+    }
+
+    private void cleanup() {
+        if (cleanedUp) {
+            return;
+        }
+
+        cleanedUp = true;
+        RefreshScheduler.getInstance().deregister(refreshTask);
     }
 }

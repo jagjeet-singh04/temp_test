@@ -1,80 +1,117 @@
 package com.bnpp.assessment.controllers;
 
+import java.util.List;
+import java.util.function.Consumer;
+import javax.swing.table.DefaultTableModel;
+
 import com.bnpp.assessment.dao.IndexDao;
 import com.bnpp.assessment.dao.IndexDaoImpl;
 import com.bnpp.assessment.models.Index;
 import com.bnpp.assessment.models.User;
 import com.bnpp.assessment.ui.panels.MarketWatchPanel;
-import com.bnpp.assessment.ui.panels.OptionChainPanel;
+import com.bnpp.assessment.util.RefreshScheduler;
 
-import javax.swing.table.DefaultTableModel;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import javax.swing.Timer;
-import java.util.List;
-
+/**
+ * Controller for the {@link MarketWatchPanel}.
+ * * The only UI action that this controller handles now is **"View Option Chain"**.
+ * Trading (CE/PE) is performed **exclusively** in the OptionChain view, which
+ * is handled by {@link OptionChainController}.
+ */
 public class MarketWatchController {
 
-	 private MarketWatchPanel marketPanel;
-	    private OptionChainPanel optionPanel;
-	    private IndexDao indexDao = new IndexDaoImpl();
-	    private User currentUser;                              // NEW
-	    private OptionChainController currentOptionChainController;
+    private final MarketWatchPanel marketPanel;
+    private final IndexDao indexDao = new IndexDaoImpl();
+    private final User currentUser;
+    private final Consumer<Index> openOptionChainCallback;
 
-	    public MarketWatchController(MarketWatchPanel marketPanel, OptionChainPanel optionPanel, User currentUser) {
-	        this.marketPanel = marketPanel;
-	        this.optionPanel = optionPanel;
-	        this.currentUser = currentUser;
-	        loadIndices();
-	        attachListeners();
-	        startAutoRefresh();
-	    }
+    private OptionChainController currentOptionChainController;
 
-    private void startAutoRefresh() {
-        Timer timer = new Timer(2000, e -> loadIndices());
-        timer.start();
+    public MarketWatchController(MarketWatchPanel marketPanel, Consumer<Index> openOptionChainCallback, User currentUser) {
+        this.marketPanel = marketPanel;
+        this.openOptionChainCallback = openOptionChainCallback;
+        this.currentUser = currentUser;
+
+        // 1. Register the refresh method with the global scheduler
+        RefreshScheduler.getInstance().register(this::loadIndices);
+        attachListeners();
     }
 
+    /**
+     * Load / refresh the Spot price table - called by RefreshScheduler.
+     */
     private void loadIndices() {
-        DefaultTableModel model = marketPanel.getModel();
+        DefaultTableModel model = marketPanel.getSpotModel();
         List<Index> indices = indexDao.findAll();
 
-        // Preserve selection if possible
-        int selectedRow = marketPanel.getIndexTable().getSelectedRow();
+        int selView = marketPanel.getSpotTable().getSelectedRow();
 
         model.setRowCount(0);
-        for (Index index : indices) {
-            model.addRow(new Object[]{ index.getSymbol(), index.getLastPrice() });
+        for (Index idx : indices) {
+            model.addRow(new Object[]{ idx.getSymbol(), idx.getLastPrice() });
         }
 
-        // Restore selection if still valid
-        if (selectedRow >= 0 && selectedRow < model.getRowCount()) {
-            marketPanel.getIndexTable().setRowSelectionInterval(selectedRow, selectedRow);
+        if (selView != -1 && selView < marketPanel.getSpotTable().getRowCount()) {
+            marketPanel.getSpotTable().setRowSelectionInterval(selView, selView);
         }
+
+        marketPanel.updateRowCount();
     }
-    
-    
 
+    /* ----------------------------------------------------------------------
+     * UI LISTENERS (only "View Option Chain" now)
+     * ---------------------------------------------------------------------- */
     private void attachListeners() {
-       
-        
-        marketPanel.getIndexTable().addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                int row = marketPanel.getIndexTable().getSelectedRow();
-                if (row == -1) return;
+        // Context menu -> View Option Chain
+        marketPanel.getViewOptionChainItem().addActionListener(e -> handleViewOptionChain());
 
-                List<Index> indices = indexDao.findAll();
-                Index selectedIndex = indices.get(row);
+        // Back button on the option chain panel (inside MarketWatchPanel)
+        marketPanel.getOptionChainPanel()
+                   .getBackButton()
+                   .addActionListener(e -> marketPanel.showSpotView());
+    }
 
-                if (currentOptionChainController != null) {
-                    currentOptionChainController.stopAutoRefresh();
-                }
+    /**
+     * Context menu handler - fires the callback that shows the option chain card.
+     */
+    private void handleViewOptionChain() {
+        int viewRow = marketPanel.getSpotTable().getSelectedRow();
+        if (viewRow == -1) return;
 
-                // Pass the user to the option chain controller
-                currentOptionChainController = new OptionChainController(optionPanel, selectedIndex, currentUser);
-                currentOptionChainController.loadOptionChain();
-            }
-        });
+        int modelRow = marketPanel.getSpotTable().convertRowIndexToModel(viewRow);
+        Index selected = indexDao.findAll().get(modelRow);
+
+        showOptionChain(selected);
+    }
+
+    /**
+     * Open the option chain for the supplied index and rebuild the trade listener state.
+     */
+    public void showOptionChain(Index selected) {
+
+        // Stop any previous chain refresh timer
+        if (currentOptionChainController != null) {
+            currentOptionChainController.stopAutoRefresh();
+        }
+
+        // Create a fresh controller for the newly selected index
+        currentOptionChainController = new OptionChainController(
+            marketPanel.getOptionChainPanel(),
+            selected,
+            currentUser
+        );
+        currentOptionChainController.loadOptionChain(); // immediate load
+
+        // Tell the outer UI (MainAppPanel) to show the Option Chain card
+        openOptionChainCallback.accept(selected);
+    }
+
+    /**
+     * Called from the "Back" button in the Option Chain panel.
+     */
+    public void goBackToSpot() {
+        if (currentOptionChainController != null) {
+            currentOptionChainController.stopAutoRefresh();
+            currentOptionChainController = null;
+        }
     }
 }
