@@ -1,7 +1,8 @@
 package com.bnpp.assessment.controllers;
 
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.List;
-import java.util.function.Consumer;
 import javax.swing.table.DefaultTableModel;
 
 import com.bnpp.assessment.dao.IndexDao;
@@ -22,13 +23,12 @@ public class MarketWatchController {
     private final MarketWatchPanel marketPanel;
     private final IndexDao indexDao = new IndexDaoImpl();
     private final User currentUser;
-    private final Consumer<Index> openOptionChainCallback;
+    private List<Index> currentIndices;
 
     private OptionChainController currentOptionChainController;
 
-    public MarketWatchController(MarketWatchPanel marketPanel, Consumer<Index> openOptionChainCallback, User currentUser) {
+    public MarketWatchController(MarketWatchPanel marketPanel, User currentUser) {
         this.marketPanel = marketPanel;
-        this.openOptionChainCallback = openOptionChainCallback;
         this.currentUser = currentUser;
 
         // 1. Register the refresh method with the global scheduler
@@ -41,12 +41,12 @@ public class MarketWatchController {
      */
     private void loadIndices() {
         DefaultTableModel model = marketPanel.getSpotModel();
-        List<Index> indices = indexDao.findAll();
+        currentIndices = indexDao.findAll();
 
         int selView = marketPanel.getSpotTable().getSelectedRow();
 
         model.setRowCount(0);
-        for (Index idx : indices) {
+        for (Index idx : currentIndices) {
             model.addRow(new Object[]{ idx.getSymbol(), idx.getLastPrice() });
         }
 
@@ -64,6 +64,15 @@ public class MarketWatchController {
         // Context menu -> View Option Chain
         marketPanel.getViewOptionChainItem().addActionListener(e -> handleViewOptionChain());
 
+        marketPanel.getSpotTable().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    handleViewOptionChain();
+                }
+            }
+        });
+
         // Back button on the option chain panel (inside MarketWatchPanel)
         marketPanel.getOptionChainPanel()
                    .getBackButton()
@@ -78,7 +87,11 @@ public class MarketWatchController {
         if (viewRow == -1) return;
 
         int modelRow = marketPanel.getSpotTable().convertRowIndexToModel(viewRow);
-        Index selected = indexDao.findAll().get(modelRow);
+        if (currentIndices == null || modelRow < 0 || modelRow >= currentIndices.size()) {
+            return;
+        }
+
+        Index selected = currentIndices.get(modelRow);
 
         showOptionChain(selected);
     }
@@ -101,8 +114,7 @@ public class MarketWatchController {
         );
         currentOptionChainController.loadOptionChain(); // immediate load
 
-        // Tell the outer UI (MainAppPanel) to show the Option Chain card
-        openOptionChainCallback.accept(selected);
+        marketPanel.showChainView();
     }
 
     /**

@@ -139,6 +139,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingConstants;
 import javax.swing.UIManager;
 
+import com.bnpp.assessment.controllers.DashboardController;
 import com.bnpp.assessment.controllers.MainController;
 import com.bnpp.assessment.controllers.MarketWatchController;
 import com.bnpp.assessment.controllers.PositionController;
@@ -188,6 +189,7 @@ public class MainAppPanel extends JPanel {
     private WalletPanel walletPanel;
     private ProfilePanel profilePanel;
 
+    private DashboardController dashboardController;
     private MarketWatchController marketWatchController;
     private WalletController walletController;
     private PositionController positionController;
@@ -312,18 +314,13 @@ public class MainAppPanel extends JPanel {
      * 2 Controllers wiring
      * ---------------------------------------------------------------------- */
     private void initControllers() {
+        dashboardController = new DashboardController(dashboardPanel, currentUser);
+
         /*
          * MarketWatch needs a callback that tells the UI to show
          * the option chain inside the MarketWatchPanel.
          */
-        marketWatchController = new MarketWatchController(
-            marketWatchPanel,
-            idx -> {
-                marketWatchPanel.getOptionChainPanel().setSelectedIndex(idx);
-                marketWatchPanel.showChainView();
-            },
-            currentUser
-        );
+        marketWatchController = new MarketWatchController(marketWatchPanel, currentUser);
 
         walletController = new WalletController(walletPanel, currentUser);
         positionController = new PositionController(positionPanel, currentUser);
@@ -331,7 +328,6 @@ public class MainAppPanel extends JPanel {
         // ----- Refresh wallet & dashboard when a position closes -----
         positionPanel.addPropertyChangeListener("walletRefresh", evt -> {
             walletController.loadWallet();
-           
         });
 
         // ----- Dashboard can also request an optionChain -----
@@ -346,16 +342,12 @@ public class MainAppPanel extends JPanel {
                             .orElse(null);
 
             if (idx != null) {
+                cardLayout.show(contentPanel, "MARKET");
                 marketWatchController.showOptionChain(idx);
-                marketWatchPanel.showChainView();
                 selectNavButton("marketwatch"); // highlight proper nav button
             }
         });
 
-        // ----- Back button on the option chain panel (inside MarketWatchPanel) -----
-        marketWatchPanel.getOptionChainPanel()
-                        .getBackButton()
-                        .addActionListener(e -> marketWatchPanel.showSpotView());
     }
 
     /* ----------------------------------------------------------------------
@@ -407,9 +399,6 @@ public class MainAppPanel extends JPanel {
     public void showCard(String cardName) {
         cardLayout.show(contentPanel, cardName);
 
-        if ("DASHBOARD".equals(cardName)) {
-           
-        }
         if ("MARKET".equals(cardName)) {
             // Ensure the Spot card is displayed
             marketWatchPanel.showSpotView();
